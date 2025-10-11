@@ -115,12 +115,6 @@ static int init_rfkill(char **rfkill_state_path)
     char buf[16];
     int fd, sz, id;
 
-    if (is_rfkill_disabled())
-    {
-        ALOGE("The rfkill module has been disabled!");
-        return -1;
-    }
-
     for (id = 0; ; id++)
     {
         snprintf(path, sizeof(path), "/sys/class/rfkill/rfkill%d/type", id);
@@ -177,7 +171,12 @@ int rfkill_operations(int on)
         ALOGW("rfkill_state_path already init: %s", rfkill_state_path);
     else
     {
-        if (init_rfkill(&rfkill_state_path))
+        if (is_rfkill_disabled())
+        {
+            ALOGD("rfkill has been disabled.");
+            return 0;
+        }
+        else if (init_rfkill(&rfkill_state_path))
         {
             ALOGE("####INIT rfkill fail###");
             return ret;

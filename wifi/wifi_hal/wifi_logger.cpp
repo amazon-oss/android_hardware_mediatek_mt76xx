@@ -348,7 +348,7 @@ public:
                 int len = reply.get_vendor_data_len();
 
                 ALOGD("len = %d, expected len = %d", len, *mBuffSize);
-                memcpy(mBuff, data, min(len, *mBuffSize));
+                memcpy(mBuff, data, std::min((size_t)len, (size_t)*mBuffSize));
                 if (*mBuffSize < len)
                     return NL_SKIP;
                 *mBuffSize = len;

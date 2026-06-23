@@ -45,6 +45,8 @@
 #include <cutils/sockets.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <string.h>
 
 #define VENDOR_LIBRARY_VERSION "700.0.17122701"
 
@@ -57,6 +59,8 @@ static void whole_chip_reset(void);
 static int fw_dump_started = 0;
 static int fw_dump_fp = -1;
 static char fw_dump_log_path[64]={0};
+static uint8_t local_bd_addr[6] = {0};
+static int local_bd_addr_valid = 0;
 
 #ifndef INVALID_FD
 #define INVALID_FD (-1)
@@ -193,11 +197,56 @@ static void _mtk_bt_handle_voice_search_data(const uint8_t *buf, const unsigned 
 static int mtk_bt_init(const bt_vendor_callbacks_t* p_cb, unsigned char *local_bdaddr)
 {
     LOG_DBG("%s : VENDOR LIBRARY VERSION =%s\n", __FUNCTION__, VENDOR_LIBRARY_VERSION);
-    (void)local_bdaddr;
+    if (local_bdaddr != NULL) {
+        memcpy(local_bd_addr, local_bdaddr, sizeof(local_bd_addr));
+        local_bd_addr_valid = 1;
+    }
     LOG_TRC();
     set_callbacks(p_cb);
 	remaining_data_buffer = data_buffer;
     return 0;
+}
+
+static void mtk_bt_set_bdaddr(int fd)
+{
+    uint8_t cmd[10] = {DATA_TYPE_COMMAND, 0x1A, 0xFC, 0x06,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const uint8_t expect[] = {DATA_TYPE_EVENT, 0x0E, 0x04, 0x01, 0x1A, 0xFC, 0x00};
+    uint8_t rsp[64];
+    int i, retry;
+
+    if (fd < 0 || !local_bd_addr_valid) {
+        LOG_DBG("no valid BD address to set, skip\n");
+        return;
+    }
+
+    for (i = 0; i < 6; i++)
+        cmd[4 + i] = local_bd_addr[5 - i];
+
+    LOG_DBG("setting BDAddr %02X:%02X:%02X:%02X:%02X:%02X\n",
+            local_bd_addr[0], local_bd_addr[1], local_bd_addr[2],
+            local_bd_addr[3], local_bd_addr[4], local_bd_addr[5]);
+
+    if (write(fd, cmd, sizeof(cmd)) != (ssize_t)sizeof(cmd)) {
+        LOG_ERR("write failed (%s)\n", strerror(errno));
+        return;
+    }
+
+    for (retry = 0; retry < 100; retry++) {
+        struct pollfd pfd = {.fd = fd, .events = POLLIN, .revents = 0};
+        int pr = poll(&pfd, 1, 100);
+        if (pr <= 0)
+            continue;
+
+        int len = read(fd, rsp, sizeof(rsp));
+        if (len >= (int)sizeof(expect) &&
+            memcmp(rsp, expect, sizeof(expect)) == 0) {
+            LOG_DBG("set BDAddr OK\n");
+            return;
+        }
+    }
+
+    LOG_ERR("no valid command-complete, BDAddr may not be set\n");
 }
 
 static int mtk_bt_op(bt_vendor_opcode_t opcode, void *param)
@@ -217,6 +266,7 @@ static int mtk_bt_op(bt_vendor_opcode_t opcode, void *param)
         ((int*)param)[0] = init_uart();
         bt_fd = ((int *)param)[0];
         if (bt_fd >= 0) {
+            mtk_bt_set_bdaddr(bt_fd);
             fcntl(bt_fd, F_SETOWN, getpid());
             oflag = fcntl(bt_fd, F_GETFL);
             fcntl(bt_fd, F_SETFL, oflag | FASYNC);

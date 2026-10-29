@@ -1,0 +1,25 @@
+soong_namespace {}
+
+cc_library_shared {
+    name: "libbt-vendor",
+    srcs: [
+        "bt_drv.c",
+        "mtk.c",
+        "radiomgr.c",
+        "platform.c",
+    ],
+    include_dirs: [
+        "packages/modules/Bluetooth/system/hci/include",
+    ],
+    cflags: [
+        "-DMTK_VENDOR_OPCODE=FALSE",
+        "-DMTK_BPERF_ENABLE=FALSE",
+        "-Wno-#pragma-messages",
+    ],
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+    ],
+    proprietary: true,
+}
